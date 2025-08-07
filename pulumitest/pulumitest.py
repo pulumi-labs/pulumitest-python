@@ -1,6 +1,5 @@
 import sys
 from pulumi import automation as auto
-import subprocess
 import unittest
 import logging
 
@@ -30,17 +29,10 @@ class PulumiTest():
         self.local_workspace = auto.LocalWorkspace(work_dir=working_dir)
         self.logger.info("Running pulumi install...")
         self.local_workspace.install()
-        # self.pulumi_install(working_dir)
         self.logger.info("Running pulumi stack init...")
         self.current_stack = auto.create_or_select_stack(self.defaultStackName, work_dir=working_dir)
         self.t = t
         self.t.addCleanup(self.destroyAndRemoveStack)
-
-    def pulumi_install(self, working_dir: str):
-        try:
-            subprocess.run(args=["pulumi", "install"], cwd=working_dir, check=True, capture_output=True)
-        except subprocess.CalledProcessError as err:
-            self.fail(f"failed to install packages and plugins: {err.stderr}\n{err.stdout}")
 
     def up(self):
         self.logger.info(f"Running pulumi up on stack: {self.current_stack.name}")
@@ -64,9 +56,8 @@ class PulumiTest():
     def set_working_dir(self, working_dir: str):
         self.working_dir = working_dir
 
+
 # TODO
 # create test options and default options
 # copy to temp dir function
-# create pulumi install function
-# initialize Stack with auto
-# create automatic teardown
+# create assertions
