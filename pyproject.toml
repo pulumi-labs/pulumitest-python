@@ -1,0 +1,16 @@
+[tool.poetry]
+name = "pulumitest-python"
+version = "0.1.0"
+description = ""
+authors = ["Jonathan Davenport <jdavenport@pulumi.com>"]
+readme = "README.md"
+
+[tool.poetry.dependencies]
+python = "^3.12"
+pytest = "^8.4.1"
+pulumi = "^3.187.0"
+
+
+[build-system]
+requires = ["poetry-core"]
+build-backend = "poetry.core.masonry.api"
