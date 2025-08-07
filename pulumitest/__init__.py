@@ -1,1 +1,1 @@
-from .pulumitest import PulumiTest, PulumiTestAlt
+from .pulumitest import PulumiTest
