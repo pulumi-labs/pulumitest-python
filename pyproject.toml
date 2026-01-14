@@ -1,7 +1,7 @@
 [tool.poetry]
-name = "pulumitest-python"
+name = "pulumitest"
 version = "0.1.0"
-description = ""
+description = "Python testing framework for Pulumi integration tests"
 authors = ["Jonathan Davenport <jdavenport@pulumi.com>"]
 readme = "README.md"
 
