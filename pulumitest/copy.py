@@ -5,7 +5,7 @@ import platform
 import unittest
 import uuid
 from pathlib import Path
-from typing import Optional
+from typing import Optional, Union
 import logging
 
 class FileOwner:
@@ -25,20 +25,38 @@ def get_file_owner(file_path: Path) -> Optional[FileOwner]:
         return None
 
 
-def temp_dir_without_cleanup_on_failed_test(log: logging.Logger, t: unittest.TestCase, prefix: str, temp_dir: str = "") -> str:
-    """Create a temporary directory with conditional cleanup on test failure."""
+def temp_dir_without_cleanup_on_failed_test(
+    log: logging.Logger,
+    context: Union["TestContext", unittest.TestCase],  # type: ignore[name-defined]
+    prefix: str,
+    temp_dir: str = ""
+) -> str:
+    """Create a temporary directory with conditional cleanup on test failure.
+
+    Args:
+        log: Logger for messages
+        context: TestContext protocol or unittest.TestCase for cleanup registration
+        prefix: Prefix for temp directory name
+        temp_dir: Base directory for temp dir (default: ./tmp)
+
+    Returns:
+        Path to created temporary directory
+    """
+    # Import here to avoid circular dependency
+    from .context import TestContext
+
     if temp_dir:
         base_dir = Path(temp_dir)
         base_dir.mkdir(parents=True, exist_ok=True)
     else:
         base_dir = Path.cwd() / "tmp"
         base_dir.mkdir(exist_ok=True)
-    
+
     # Create unique temp directory
     temp_path = base_dir / f"{prefix}_{uuid.uuid4().hex[:8]}"
     log.info(f"Creating temp directory {temp_path.name}")
     temp_path.mkdir(exist_ok=True)
-    
+
     def cleanup_temp_dir() -> None:
         log.info(f"Removing temp directory {temp_path.name}")
         try:
@@ -52,8 +70,17 @@ def temp_dir_without_cleanup_on_failed_test(log: logging.Logger, t: unittest.Tes
         except OSError:
             pass  # Ignore cleanup errors
 
-    # Only cleanup if test passed (TestCase.tearDown only runs on test success)
-    t.tearDown = cleanup_temp_dir  # type: ignore[method-assign]
+    # Register cleanup based on context type
+    if isinstance(context, TestContext):
+        # Use TestContext protocol for cleanup
+        context.add_cleanup(cleanup_temp_dir)
+    elif isinstance(context, unittest.TestCase):
+        # Use unittest tearDown for cleanup (only runs on success)
+        context.tearDown = cleanup_temp_dir  # type: ignore[method-assign]
+    else:
+        # Fallback: log warning but continue
+        log.warning(f"Unknown context type {type(context)}, cleanup may not work correctly")
+
     return str(temp_path)
 
 

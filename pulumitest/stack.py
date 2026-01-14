@@ -40,7 +40,7 @@ class Stack:
     context: TestContext
     working_dir: str
     options: opttest.Options
-    current_stack: auto.Stack
+    current_stack: auto.Stack | None
     local_workspace: auto.LocalWorkspace
     logger: logging.Logger
 
@@ -87,14 +87,19 @@ class Stack:
             self.logger.info("Running pulumi install...")
             self.local_workspace.install()
 
-        # Get stack name from options or use default
-        stack_name = getattr(self.options, 'stack_name', self.defaultStackName)
+        # Create or select stack unless skipped
+        if not getattr(self.options, 'skip_stack_create', False):
+            # Get stack name from options or use default
+            stack_name = getattr(self.options, 'stack_name', self.defaultStackName)
 
-        self.logger.info(f"Running pulumi stack init... (stack: {stack_name})")
-        self.current_stack = auto.create_or_select_stack(
-            stack_name,
-            work_dir=self.working_dir
-        )
+            self.logger.info(f"Running pulumi stack init... (stack: {stack_name})")
+            self.current_stack = auto.create_or_select_stack(
+                stack_name,
+                work_dir=self.working_dir
+            )
+        else:
+            self.logger.info("Skipping stack creation (skip_stack_create=True)")
+            self.current_stack = None
 
     def destroy_and_remove(self) -> None:
         """Destroy and remove stack.
