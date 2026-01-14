@@ -9,7 +9,7 @@ from .copy import (
     copy_file,
     copy_symlink,
     create_if_not_exists,
-    temp_dir_with_cleanup_on_success
+    temp_dir_without_cleanup_on_failed_test
 )
 from pathlib import Path
 from typing import Self
@@ -171,7 +171,7 @@ class PulumiTestProgram:
         for opt in opts:
             opt.apply(options)
         
-        temp_dir = temp_dir_with_cleanup_on_success(self.logger, self.t, "programDir", options.temp_dir)
+        temp_dir = temp_dir_without_cleanup_on_failed_test(self.logger, self.t, "programDir", options.temp_dir)
         
         # Maintain the directory name in the temp dir as this might be used for stack naming
         source_base = Path(self.working_dir).name
