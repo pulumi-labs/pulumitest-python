@@ -39,7 +39,7 @@ def temp_dir_without_cleanup_on_failed_test(log: logging.Logger, t: unittest.Tes
     log.info(f"Creating temp directory {temp_path.name}")
     temp_path.mkdir(exist_ok=True)
     
-    def cleanup_temp_dir():
+    def cleanup_temp_dir() -> None:
         log.info(f"Removing temp directory {temp_path.name}")
         try:
             if temp_path.exists():
@@ -51,9 +51,9 @@ def temp_dir_without_cleanup_on_failed_test(log: logging.Logger, t: unittest.Tes
                 temp_path.rmdir()
         except OSError:
             pass  # Ignore cleanup errors
-    
+
     # Only cleanup if test passed (TestCase.tearDown only runs on test success)
-    t.tearDown = cleanup_temp_dir
+    t.tearDown = cleanup_temp_dir  # type: ignore[method-assign]
     return str(temp_path)
 
 

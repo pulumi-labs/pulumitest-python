@@ -12,21 +12,21 @@ from .copy import (
     temp_dir_without_cleanup_on_failed_test
 )
 from pathlib import Path
-from typing import Self
+from typing import Self, Optional, TextIO
 from .result import PreviewResult, RefreshResult, UpdateResult
 
 class PulumiTestProgram:
     current_stack: auto.Stack
     working_dir: str
     logger: logging.Logger
-    stream_handler: logging.StreamHandler
+    stream_handler: logging.StreamHandler[TextIO]
     t: unittest.TestCase
     options: opttest.Options
-    _env_vars: dict
+    _env_vars: dict[str, str]
 
     defaultStackName = "test"        
     
-    def destroyAndRemoveStack(self):
+    def destroyAndRemoveStack(self) -> None:
         if self.current_stack is not None:
             self.logger.info("Running pulumi destroy and removing stack...")
             self.current_stack.destroy(remove=True)
@@ -34,7 +34,7 @@ class PulumiTestProgram:
         else:
             self.logger.info("No current stack, skipping destroy...")
 
-    def __init__(self, t: unittest.TestCase, working_dir: str, *opts: opttest.Option, options: opttest.Options = None):
+    def __init__(self, t: unittest.TestCase, working_dir: str, *opts: opttest.Option, options: Optional[opttest.Options] = None):
         if options:
             self.options = options
         else:
@@ -63,7 +63,7 @@ class PulumiTestProgram:
 
         self.pulumi_test_init()
 
-    def pulumi_test_init(self):
+    def pulumi_test_init(self) -> None:
         self.logger.info("Creating local workspace...")
         self.local_workspace = auto.LocalWorkspace(work_dir=self.working_dir)
         self.logger.info("Running pulumi install...")
@@ -72,26 +72,26 @@ class PulumiTestProgram:
         self.current_stack = auto.create_or_select_stack(self.defaultStackName, work_dir=self.working_dir)
         self.t.addCleanup(self.destroyAndRemoveStack)
 
-    def up(self):
+    def up(self) -> UpdateResult:
         self.logger.info(f"Running pulumi up on stack: {self.current_stack.name}")
         result = self.current_stack.up()
         return UpdateResult(self.t, result)
-    
-    def preview(self):
+
+    def preview(self) -> PreviewResult:
         self.logger.info(f"Running pulumi preview on stack: {self.current_stack.name}")
         result = self.current_stack.preview()
         return PreviewResult(self.t, result)
-    
-    def destroy(self):
+
+    def destroy(self) -> auto.DestroyResult:
         self.logger.info(f"Running pulumi destroy on stack: {self.current_stack.name}")
         return self.current_stack.destroy()
-    
-    def refresh(self):
+
+    def refresh(self) -> RefreshResult:
         self.logger.info(f"Running pulumi refresh on stack: {self.current_stack.name}")
         result = self.current_stack.refresh()
         return RefreshResult(self.t, result)
 
-    def update_source(self, source_dir: str):
+    def update_source(self, source_dir: str) -> None:
         """
         Update the working directory's program files from source_dir.
         Replaces program files while maintaining stack and state.
@@ -113,7 +113,7 @@ class PulumiTestProgram:
         preserve_paths = {'.pulumi', 'Pulumi.yaml', 'Pulumi.test.yaml'}
 
         # Recursively copy files from source to working dir, skipping preserved paths
-        def copy_selective(src: Path, dst: Path):
+        def copy_selective(src: Path, dst: Path) -> None:
             for entry in src.iterdir():
                 # Skip preserved paths at the root level
                 if entry.name in preserve_paths and src == source_path:
@@ -139,10 +139,10 @@ class PulumiTestProgram:
         except OSError as e:
             self.t.fail(f"Error updating source from {source_dir}: {e.strerror}")
 
-    def add_environments(self, *environment_names: str):
+    def add_environments(self, *environment_names: str) -> None:
         self.current_stack.add_environments(*environment_names)
 
-    def get_env_vars(self) -> dict:
+    def get_env_vars(self) -> dict[str, str]:
         """
         Return environment variables for this workspace.
 
@@ -154,16 +154,16 @@ class PulumiTestProgram:
         """
         return self._env_vars.copy()
 
-    def set_working_dir(self, working_dir: str):
+    def set_working_dir(self, working_dir: str) -> None:
         self.working_dir = working_dir
     
-    def copy_to_temp_dir(self, *opts: opttest.Option) -> Self:
+    def copy_to_temp_dir(self, *opts: opttest.Option) -> "PulumiTestProgram":
         """Copy the program to a temporary directory.
         Returns a new PulumiTest instance for the copied program.
         This is used to avoid temporary files being written to the source directory.
         """
         destination = self._create_temp_dir(*opts)
-        
+
         return self.copy_to(destination, *opts)
     
     def _create_temp_dir(self, *opts: opttest.Option) -> str:
@@ -184,13 +184,13 @@ class PulumiTestProgram:
         
         return str(destination)
     
-    def copy_to(self, directory: str, *opts: opttest.Option) -> Self:
+    def copy_to(self, directory: str, *opts: opttest.Option) -> "PulumiTestProgram":
         """Copy the program to the specified directory.
         Returns a new PulumiTest instance for the copied program.
         """
         options = self._copy_to(directory, *opts)
         opttest.test_in_place().apply(options)
-        
+
         # Create new PulumiTest instance with the copied directory and options
         return PulumiTestProgram(self.t, directory, options=options)
 
@@ -199,9 +199,9 @@ class PulumiTestProgram:
             copy_directory(self.working_dir, directory)
         except OSError as e:
             self.t.fail(f"error copying program to temp directory: {e.strerror}")
-        
+
         options = self.options.copy()
         for opt in opts:
             opt.apply(options)
-        
+
         return options

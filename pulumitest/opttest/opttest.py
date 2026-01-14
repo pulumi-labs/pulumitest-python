@@ -173,7 +173,7 @@ def attach_downloaded_plugin(name: str, version: str) -> Option:
     def apply_option(o: Options) -> None:
         # Note: In Go this creates a DownloadPluginBinaryFactory
         # Actual implementation would need the equivalent factory
-        def download_factory():
+        def download_factory() -> str:
             # Placeholder - would need actual download logic
             return f"downloaded-{name}-{version}"
         o.providers[name] = ProviderConfigUnion(factory=download_factory)
