@@ -4,6 +4,10 @@ version = "0.1.0"
 description = "Python testing framework for Pulumi integration tests"
 authors = ["Jonathan Davenport <jdavenport@pulumi.com>"]
 readme = "README.md"
+packages = [
+    { include = "pulumitest" }
+]
+include = ["pulumitest/py.typed"]
 
 [tool.poetry.dependencies]
 python = "^3.12"
