@@ -22,6 +22,9 @@ Unittest API (backward compatible):
 Both APIs share the same core implementation and support the same features.
 """
 
+# Framework-independent API (recommended for flexibility)
+from .program import PulumiProgram
+
 # Backward-compatible unittest API
 from .pulumitest import PulumiTestProgram
 
@@ -39,6 +42,9 @@ from .result import Result, PreviewResult, RefreshResult, UpdateResult
 # Import pytest_plugin to access fixtures: pulumi_test, pulumi_stack, etc.
 
 __all__ = [
+    # Framework-independent API (recommended)
+    "PulumiProgram",
+
     # Unittest API (backward compatible)
     "PulumiTestProgram",
 
