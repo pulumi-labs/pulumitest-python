@@ -1,3 +1,17 @@
+# Copyright 2026, Pulumi Corporation.
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
 """Framework-independent Pulumi program wrapper.
 
 PulumiProgram wraps the Pulumi Automation API with ZERO test framework
@@ -109,7 +123,8 @@ class PulumiProgram:
 
         self._env_vars = {
             "PULUMI_BACKEND_URL": os.environ.get("PULUMI_BACKEND_URL", ""),
-            "PULUMI_CONFIG_PASSPHRASE": self.options.config_passphrase or "correct horse battery staple",
+            "PULUMI_CONFIG_PASSPHRASE": self.options.config_passphrase
+            or "correct horse battery staple",
         }
 
         if not self.options.test_in_place:
@@ -126,7 +141,9 @@ class PulumiProgram:
         logger.setLevel(logging.DEBUG)
         handler = logging.StreamHandler(sys.stdout)
         handler.setLevel(logging.DEBUG)
-        handler.setFormatter(logging.Formatter("%(levelname)s - %(name)s - %(message)s"))
+        handler.setFormatter(
+            logging.Formatter("%(levelname)s - %(name)s - %(message)s")
+        )
         if not logger.handlers:
             logger.addHandler(handler)
         return logger

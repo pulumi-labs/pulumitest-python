@@ -1,3 +1,17 @@
+# Copyright 2026, Pulumi Corporation.
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
 """Result classes for Pulumi operations.
 
 Each result wraps the corresponding Pulumi Automation API result and adds
@@ -35,22 +49,32 @@ class PreviewResult:
         cs = _ChangeSummary(self.preview_result.change_summary)
         deletes = cs.where_op_equals(OpType.DELETE, OpType.DELETE_REPLACED)
         if deletes:
-            raise AssertionError(f"expected no deletes, got {deletes}\n{self.preview_result.stdout}")
+            raise AssertionError(
+                f"expected no deletes, got {deletes}\n{self.preview_result.stdout}"
+            )
 
     def has_no_changes(self) -> None:
         cs = _ChangeSummary(self.preview_result.change_summary)
         unexpected = cs.where_op_not_equals(OpType.SAME)
         if unexpected:
-            raise AssertionError(f"expected no changes, got {unexpected}\n{self.preview_result.stdout}")
+            raise AssertionError(
+                f"expected no changes, got {unexpected}\n{self.preview_result.stdout}"
+            )
 
     def has_no_replacements(self) -> None:
         cs = _ChangeSummary(self.preview_result.change_summary)
         replacements = cs.where_op_equals(
-            OpType.REPLACE, OpType.CREATE_REPLACEMENT, OpType.DELETE_REPLACED,
-            OpType.DISCARD_REPLACED, OpType.IMPORT_REPLACEMENT, OpType.READ_REPLACEMENT,
+            OpType.REPLACE,
+            OpType.CREATE_REPLACEMENT,
+            OpType.DELETE_REPLACED,
+            OpType.DISCARD_REPLACED,
+            OpType.IMPORT_REPLACEMENT,
+            OpType.READ_REPLACEMENT,
         )
         if replacements:
-            raise AssertionError(f"expected no replacements, got {replacements}\n{self.preview_result.stdout}")
+            raise AssertionError(
+                f"expected no replacements, got {replacements}\n{self.preview_result.stdout}"
+            )
 
 
 class RefreshResult:
@@ -72,7 +96,9 @@ class RefreshResult:
         cs = _ChangeSummary(resource_changes)
         unexpected = cs.where_op_not_equals(OpType.SAME)
         if unexpected:
-            raise AssertionError(f"expected no changes, got {unexpected}\n{self.refresh_result.stdout}")
+            raise AssertionError(
+                f"expected no changes, got {unexpected}\n{self.refresh_result.stdout}"
+            )
 
 
 class UpdateResult:
@@ -98,7 +124,9 @@ class UpdateResult:
         cs = _ChangeSummary(resource_changes)
         deletes = cs.where_op_equals(OpType.DELETE, OpType.DELETE_REPLACED)
         if deletes:
-            raise AssertionError(f"expected no deletes, got {deletes}\n{self.update_result.stdout}")
+            raise AssertionError(
+                f"expected no deletes, got {deletes}\n{self.update_result.stdout}"
+            )
 
     def has_no_changes(self) -> None:
         resource_changes = self.update_result.summary.resource_changes
@@ -107,7 +135,9 @@ class UpdateResult:
         cs = _ChangeSummary(resource_changes)
         unexpected = cs.where_op_not_equals(OpType.SAME)
         if unexpected:
-            raise AssertionError(f"expected no changes, got {unexpected}\n{self.update_result.stdout}")
+            raise AssertionError(
+                f"expected no changes, got {unexpected}\n{self.update_result.stdout}"
+            )
 
     def has_no_replacements(self) -> None:
         resource_changes = self.update_result.summary.resource_changes
@@ -115,8 +145,14 @@ class UpdateResult:
             return
         cs = _ChangeSummary(resource_changes)
         replacements = cs.where_op_equals(
-            OpType.REPLACE, OpType.CREATE_REPLACEMENT, OpType.DELETE_REPLACED,
-            OpType.DISCARD_REPLACED, OpType.IMPORT_REPLACEMENT, OpType.READ_REPLACEMENT,
+            OpType.REPLACE,
+            OpType.CREATE_REPLACEMENT,
+            OpType.DELETE_REPLACED,
+            OpType.DISCARD_REPLACED,
+            OpType.IMPORT_REPLACEMENT,
+            OpType.READ_REPLACEMENT,
         )
         if replacements:
-            raise AssertionError(f"expected no replacements, got {replacements}\n{self.update_result.stdout}")
+            raise AssertionError(
+                f"expected no replacements, got {replacements}\n{self.update_result.stdout}"
+            )
