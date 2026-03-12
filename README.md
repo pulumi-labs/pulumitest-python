@@ -1,17 +1,17 @@
 # Pulumitest Python
 
-Python testing utilities for Pulumi programs. Works with pytest, unittest, or standalone.
+A Python port of [pulumitest](https://github.com/pulumi/pulumitest) (Go) for testing Pulumi programs using the Automation API. Framework-agnostic: works with pytest, unittest, or standalone.
 
 ## Installation
 
 ```bash
-pip install pulumitest
+uv add pulumitest
 ```
 
 Or from source:
 
 ```bash
-pip install 'pulumitest @ git+https://github.com/pulumi/pulumitest-python.git@main'
+uv add 'pulumitest @ git+https://github.com/pulumi/pulumitest-python.git@main'
 ```
 
 ## Quick Start
@@ -158,8 +158,9 @@ workspace = program.local_workspace # auto.LocalWorkspace
 ```bash
 git clone https://github.com/pulumi/pulumitest-python.git
 cd pulumitest-python
-pip install -e ".[dev]"
-pytest tests/
+uv sync --dev
+just test    # run tests
+just lint    # run linter
 ```
 
 ## License
