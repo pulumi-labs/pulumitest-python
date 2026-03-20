@@ -66,10 +66,9 @@ def test_program_creates_stack(mock_auto):
     )
 
     assert program.current_stack is mock_stack
-    mock_auto.create_or_select_stack.assert_called_once_with(
-        "test",
-        work_dir="test_stack",
-    )
+    call_args = mock_auto.create_or_select_stack.call_args
+    assert call_args[0] == ("test",)
+    assert call_args[1]["work_dir"] == "test_stack"
 
 
 @patch("pulumitest.program.auto")
@@ -84,10 +83,9 @@ def test_program_custom_stack_name(mock_auto):
         opttest.stack_name("custom"),
     )
 
-    mock_auto.create_or_select_stack.assert_called_once_with(
-        "custom",
-        work_dir="test_stack",
-    )
+    call_args = mock_auto.create_or_select_stack.call_args
+    assert call_args[0] == ("custom",)
+    assert call_args[1]["work_dir"] == "test_stack"
 
 
 @patch("pulumitest.program.auto")
@@ -104,6 +102,38 @@ def test_get_env_vars(mock_auto):
     env_vars = program.get_env_vars()
     assert "PULUMI_CONFIG_PASSPHRASE" in env_vars
     assert env_vars["PULUMI_CONFIG_PASSPHRASE"] == "correct horse battery staple"
+
+
+@patch("pulumitest.program.auto")
+def test_custom_env_vars_applied(mock_auto):
+    """Custom env vars from env() option are merged into _env_vars and passed to workspace."""
+    mock_auto.LocalWorkspace.return_value = MagicMock()
+    mock_auto.create_or_select_stack.return_value = MagicMock()
+
+    program = PulumiProgram(
+        "test_stack",
+        opttest.test_in_place(),
+        opttest.skip_install(),
+        opttest.env("PULUMI_BACKEND_URL", "file:///tmp/test-backend"),
+        opttest.env("MY_CUSTOM_VAR", "hello"),
+    )
+
+    env_vars = program.get_env_vars()
+    assert env_vars["PULUMI_BACKEND_URL"] == "file:///tmp/test-backend"
+    assert env_vars["MY_CUSTOM_VAR"] == "hello"
+
+    # Verify env vars were passed to LocalWorkspace
+    ws_call = mock_auto.LocalWorkspace.call_args
+    ws_env = ws_call[1]["env_vars"]
+    assert ws_env["PULUMI_BACKEND_URL"] == "file:///tmp/test-backend"
+    assert ws_env["MY_CUSTOM_VAR"] == "hello"
+
+    # Verify opts were passed to create_or_select_stack
+    stack_call = mock_auto.create_or_select_stack.call_args
+    assert "opts" in stack_call[1]
+    # Verify LocalWorkspaceOptions was constructed with env_vars
+    opts_call = mock_auto.LocalWorkspaceOptions.call_args
+    assert opts_call[1]["env_vars"]["PULUMI_BACKEND_URL"] == "file:///tmp/test-backend"
 
 
 @patch("pulumitest.program.auto")

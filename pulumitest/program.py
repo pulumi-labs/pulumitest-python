@@ -126,6 +126,9 @@ class PulumiProgram:
             "PULUMI_CONFIG_PASSPHRASE": self.options.config_passphrase
             or "correct horse battery staple",
         }
+        # Merge custom env vars from options (e.g. from env() option).
+        # Custom env vars take precedence over defaults.
+        self._env_vars.update(self.options.custom_env)
 
         if not self.options.test_in_place:
             destination = self._create_temp_dir()
@@ -172,7 +175,11 @@ class PulumiProgram:
 
     def _init_stack(self) -> None:
         self.logger.info("Creating local workspace...")
-        self.local_workspace = auto.LocalWorkspace(work_dir=self.working_dir)
+        env_vars = {k: v for k, v in self._env_vars.items() if v} or None
+        self.local_workspace = auto.LocalWorkspace(
+            work_dir=self.working_dir,
+            env_vars=env_vars,
+        )
 
         if not self.options.skip_install:
             self.logger.info("Running pulumi install...")
@@ -184,6 +191,7 @@ class PulumiProgram:
             self.current_stack = auto.create_or_select_stack(
                 stack_name,
                 work_dir=self.working_dir,
+                opts=auto.LocalWorkspaceOptions(env_vars=env_vars),
             )
         else:
             self.logger.info("Skipping stack creation (skip_stack_create=True)")
