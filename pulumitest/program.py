@@ -188,16 +188,32 @@ class PulumiProgram:
         else:
             self.logger.info("Skipping stack creation (skip_stack_create=True)")
 
-    def cleanup(self) -> None:
-        """Destroy and remove stack. Register with your test framework's cleanup."""
-        if self.current_stack is not None:
-            self.logger.info("Running pulumi destroy and removing stack...")
-            try:
-                self.current_stack.destroy(remove=True)
-            except Exception as e:
-                self.logger.error(f"Error during cleanup: {e}")
-        else:
+    def cleanup(self, raise_on_error: bool = False) -> None:
+        """Destroy and remove stack. Register with your test framework's cleanup.
+
+        Args:
+            raise_on_error: Re-raise if the destroy fails. Defaults to False to
+                preserve existing behaviour, but a failed destroy leaves real
+                cloud resources behind, so suites that care about leaks should
+                pass True and let the teardown fail loudly.
+        """
+        if self.current_stack is None:
             self.logger.info("No current stack, skipping destroy...")
+            return
+
+        self.logger.info("Running pulumi destroy and removing stack...")
+        try:
+            self.current_stack.destroy(remove=True)
+        except Exception:
+            # logger.exception so the traceback survives; the previous
+            # str(e)-only message made a failed destroy hard to distinguish
+            # from a successful one in CI logs.
+            self.logger.exception(
+                f"Destroy failed for stack {self.current_stack.name!r}; "
+                "cloud resources may have been left behind"
+            )
+            if raise_on_error:
+                raise
 
     def up(self) -> UpdateResult:
         """Run pulumi up."""
