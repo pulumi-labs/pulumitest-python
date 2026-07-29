@@ -15,6 +15,9 @@
 """Test PulumiProgram construction (no cloud credentials needed)."""
 
 from unittest.mock import patch, MagicMock
+
+import pytest
+
 from pulumitest import PulumiProgram, opttest
 
 
@@ -119,3 +122,57 @@ def test_cleanup_no_stack(mock_auto):
     )
 
     program.cleanup()  # Should not raise
+
+
+def _program_with_failing_destroy(mock_auto):
+    """A program whose stack raises on destroy."""
+    mock_auto.LocalWorkspace.return_value = MagicMock()
+
+    program = PulumiProgram(
+        "test_stack",
+        opttest.test_in_place(),
+        opttest.skip_install(),
+        opttest.skip_stack_create(),
+    )
+
+    stack = MagicMock()
+    stack.name = "some-stack"
+    stack.destroy.side_effect = RuntimeError("destroy failed: resource still in use")
+    program.current_stack = stack
+    return program, stack
+
+
+@patch("pulumitest.program.auto")
+def test_cleanup_swallows_destroy_error_by_default(mock_auto):
+    """A failed destroy is logged, not raised, preserving existing behaviour."""
+    program, stack = _program_with_failing_destroy(mock_auto)
+
+    program.cleanup()  # Should not raise
+
+    stack.destroy.assert_called_once_with(remove=True)
+
+
+@patch("pulumitest.program.auto")
+def test_cleanup_raises_destroy_error_when_requested(mock_auto):
+    """raise_on_error surfaces the failure so leaked resources aren't silent."""
+    program, stack = _program_with_failing_destroy(mock_auto)
+
+    with pytest.raises(RuntimeError, match="destroy failed"):
+        program.cleanup(raise_on_error=True)
+
+    stack.destroy.assert_called_once_with(remove=True)
+
+
+@patch("pulumitest.program.auto")
+def test_cleanup_no_stack_does_not_raise_even_when_strict(mock_auto):
+    """Nothing to destroy is not an error, regardless of raise_on_error."""
+    mock_auto.LocalWorkspace.return_value = MagicMock()
+
+    program = PulumiProgram(
+        "test_stack",
+        opttest.test_in_place(),
+        opttest.skip_install(),
+        opttest.skip_stack_create(),
+    )
+
+    program.cleanup(raise_on_error=True)  # Should not raise
