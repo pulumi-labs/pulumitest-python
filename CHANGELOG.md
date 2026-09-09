@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Security
+
+- `cleanup()` no longer destroys a stack that existed before the run. Such a stack is selected, `stack_preexisted` is set, and destroy is skipped unless `opttest.destroy_existing_stack()` is given
+- Each program now uses a private local file backend by default; `opttest.use_ambient_backend()` opts into the `pulumi login` backend as the option always documented
+- The temporary copy of the program excludes `.git`, `.env*`, `node_modules`, `bin`, `obj`, `__pycache__`, `.venv`, `venv`, and `.terraform`, skips symlinks that escape the program directory, is created with mode `0700`, and is deleted by `cleanup()` (`opttest.keep_temp_dir()` keeps it)
+- Environment variables built for the Automation API workspace (config passphrase, backend URL, `env()` overrides) are now actually passed to `LocalWorkspace` and stack creation/selection; previously they were computed and discarded
+- Documented that the default config passphrase is public and that `get_env_vars()` returns secrets
+- Added `SECURITY.md` and Dependabot configuration
+- Removed `poetry.lock` files (superseded by `uv.lock`); `pulumitest/poetry.lock` previously shipped inside the wheel
+
 ## [0.1.0] - 2026-03-12
 
 ### Added
