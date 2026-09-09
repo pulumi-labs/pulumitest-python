@@ -388,6 +388,56 @@ def test_directories_created_private(tmp_path):
     assert stat.S_IMODE((dest / "sub").stat().st_mode) == 0o700
 
 
+# --- Copies ------------------------------------------------------------------
+
+
+def test_copy_to_temp_dir_copy_owns_its_directory(monkeypatch, tmp_path):
+    _mock_local_workspace(monkeypatch)
+    monkeypatch.chdir(tmp_path)
+    src = tmp_path / "program"
+    src.mkdir()
+    (src / "main.py").write_text("code")
+    base = tmp_path / "tempbase"
+
+    program = PulumiProgram(
+        "program",
+        opttest.test_in_place(),
+        opttest.skip_install(),
+        opttest.skip_stack_create(),
+        opttest.temp_dir(str(base)),
+    )
+    copy = program.copy_to_temp_dir()
+    program_dir = Path(copy.working_dir).parent
+    assert program_dir.exists()
+    assert Path(copy.working_dir, "main.py").read_text() == "code"
+
+    copy.cleanup()
+
+    assert not program_dir.exists()
+    assert src.exists()
+
+
+def test_copy_to_copy_does_not_remove_caller_chosen_directory(monkeypatch, tmp_path):
+    _mock_local_workspace(monkeypatch)
+    monkeypatch.chdir(tmp_path)
+    src = tmp_path / "program"
+    src.mkdir()
+    (src / "main.py").write_text("code")
+
+    program = PulumiProgram(
+        "program",
+        opttest.test_in_place(),
+        opttest.skip_install(),
+        opttest.skip_stack_create(),
+        opttest.temp_dir(str(tmp_path / "tempbase")),
+    )
+    target = tmp_path / "copy"
+    copy = program.copy_to(str(target))
+    copy.cleanup()
+
+    assert (target / "main.py").exists()
+
+
 # --- Temp directory hygiene ---------------------------------------------------
 
 

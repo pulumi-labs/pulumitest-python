@@ -434,12 +434,21 @@ class PulumiProgram:
         return self._env_vars.copy()
 
     def copy_to_temp_dir(self, *opts: opttest.Option) -> "PulumiProgram":
-        """Copy program to a new temporary directory."""
-        _, destination = self._create_temp_dir()
-        return self.copy_to(destination, *opts)
+        """Copy program to a new temporary directory.
+
+        The returned program owns that directory and removes it in ``cleanup()``.
+        """
+        program_dir, destination = self._create_temp_dir()
+        copy = self.copy_to(destination, *opts)
+        copy._owned_temp_dir = program_dir
+        return copy
 
     def copy_to(self, directory: str, *opts: opttest.Option) -> "PulumiProgram":
-        """Copy program to specified directory."""
+        """Copy program to specified directory.
+
+        The caller chose ``directory``, so the returned program does not remove
+        it in ``cleanup()``. Use :meth:`copy_to_temp_dir` for a self-cleaning copy.
+        """
         self._copy_to_internal(directory)
         options = self.options.copy()
         for opt in opts:
