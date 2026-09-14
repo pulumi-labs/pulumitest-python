@@ -41,16 +41,42 @@ Example usage standalone:
 
 import os
 import sys
+import shutil
 import logging
-import platform
 import uuid
 from pathlib import Path
-from typing import Optional
+from typing import Callable, Optional
 
 from pulumi import automation as auto
 
 from . import opttest
 from .results import UpdateResult, PreviewResult, RefreshResult
+
+#: Directory and file names never copied from the program under test.
+#:
+#: These hold credentials (``.env*``), history that may contain old secrets
+#: (``.git``), or build output that is large and reproducible.
+EXCLUDED_NAMES: frozenset[str] = frozenset(
+    {
+        ".git",
+        ".env",
+        "node_modules",
+        "bin",
+        "obj",
+        "__pycache__",
+        ".venv",
+        "venv",
+        ".terraform",
+    }
+)
+
+
+def _is_excluded_name(name: str) -> bool:
+    return name in EXCLUDED_NAMES or name.startswith(".env.")
+
+
+def _short_id() -> str:
+    return uuid.uuid4().hex[:8]
 
 
 def _copy_file(src: str, dst: str) -> None:
@@ -59,28 +85,77 @@ def _copy_file(src: str, dst: str) -> None:
     dst_path.chmod(src_path.stat().st_mode)
 
 
-def _copy_symlink(src: str, dst: str) -> None:
-    Path(dst).symlink_to(Path(src).readlink())
+def _copy_symlink(src: Path, dst: Path) -> None:
+    if dst.is_symlink() or dst.exists():
+        if dst.is_dir() and not dst.is_symlink():
+            shutil.rmtree(dst)
+        else:
+            dst.unlink()
+    dst.symlink_to(os.readlink(src))
 
 
-def _copy_directory(src_dir: str, dest: str) -> None:
-    src_path, dest_path = Path(src_dir), Path(dest)
-    for entry in src_path.iterdir():
+def _safe_copy_filter(
+    source_root: str,
+    avoid: list[str],
+    extra: Optional[Callable[[str], bool]] = None,
+) -> Callable[[Path], bool]:
+    """Build a copy filter that skips excluded names, refuses symlinks whose
+    target lies outside ``source_root``, and never descends into anything in
+    ``avoid`` (typically the destination, so copying a directory into its own
+    subtree cannot recurse).
+
+    Paths are compared lexically (``os.path.abspath``) rather than resolved,
+    so a symlink's own path is never itself followed while deciding whether
+    it is in scope.
+    """
+    root = os.path.abspath(str(source_root))
+    avoid_resolved = [os.path.abspath(str(a)) for a in avoid]
+
+    def filt(src: Path) -> bool:
+        resolved = os.path.abspath(str(src))
+        if resolved == root:
+            return True
+        for a in avoid_resolved:
+            if resolved == a or resolved.startswith(a + os.sep):
+                return False
+        if _is_excluded_name(os.path.basename(resolved)):
+            return False
+        if src.is_symlink():
+            target = os.path.abspath(
+                os.path.join(os.path.dirname(resolved), os.readlink(src))
+            )
+            if target != root and not target.startswith(root + os.sep):
+                return False
+        return extra(resolved) if extra else True
+
+    return filt
+
+
+def _copy_directory(src_dir: str, dest: str, filt: Callable[[Path], bool]) -> None:
+    """Recursive copy that consults ``filt`` for every entry before touching it.
+
+    Symlinks are recreated verbatim, files overwrite, directories are created
+    private to the current user (mode ``0700``). Each entry's ``is_symlink()``
+    is checked before ``is_dir()`` so a symlink to a directory is never
+    followed and recursed into.
+    """
+    dest_path = Path(dest)
+    dest_path.mkdir(parents=True, exist_ok=True)
+    os.chmod(dest_path, 0o700)
+    for entry in Path(src_dir).iterdir():
+        if not filt(entry):
+            continue
         dest_entry = dest_path / entry.name
-        if entry.is_dir():
-            dest_entry.mkdir(mode=0o755, parents=True, exist_ok=True)
-            _copy_directory(str(entry), str(dest_entry))
-        elif entry.is_symlink():
-            _copy_symlink(str(entry), str(dest_entry))
+        if entry.is_symlink():
+            _copy_symlink(entry, dest_entry)
+        elif entry.is_dir():
+            _copy_directory(str(entry), str(dest_entry), filt)
         else:
             _copy_file(str(entry), str(dest_entry))
-        # Preserve ownership on Unix
-        if platform.system() != "Windows":
-            try:
-                stat = entry.stat()
-                os.lchown(str(dest_entry), stat.st_uid, stat.st_gid)
-            except (OSError, AttributeError):
-                pass
+
+
+# Names preserved in the working directory when the source is swapped out.
+PRESERVED_PATHS = {".pulumi", "Pulumi.yaml", "Pulumi.test.yaml"}
 
 
 class PulumiProgram:
@@ -96,6 +171,14 @@ class PulumiProgram:
     logger: logging.Logger
     current_stack: auto.Stack | None
     local_workspace: auto.LocalWorkspace | None
+    #: True when the stack already existed and was selected rather than
+    #: created. ``cleanup()`` refuses to destroy such a stack unless
+    #: ``opttest.destroy_existing_stack()`` was given.
+    stack_preexisted: bool
+    #: Directory this program created and will remove in ``cleanup()``, if any.
+    _owned_temp_dir: Optional[str]
+    #: Local file backend directory created for this program, if any.
+    _backend_dir: Optional[str]
     _env_vars: dict[str, str]
 
     defaultStackName = "test"
@@ -121,19 +204,24 @@ class PulumiProgram:
         else:
             self.logger = self._create_default_logger()
 
+        self.current_stack = None
+        self.local_workspace = None
+        self.stack_preexisted = False
+        self._owned_temp_dir = None
+        self._backend_dir = None
+
         self._env_vars = {
-            "PULUMI_BACKEND_URL": os.environ.get("PULUMI_BACKEND_URL", ""),
             "PULUMI_CONFIG_PASSPHRASE": self.options.config_passphrase
-            or "correct horse battery staple",
+            or opttest.DEFAULT_CONFIG_PASSPHRASE,
         }
 
         if not self.options.test_in_place:
-            destination = self._create_temp_dir()
+            program_dir, destination = self._create_temp_dir()
+            self._owned_temp_dir = program_dir
             self._copy_to_internal(destination)
             self.working_dir = destination
 
-        self.current_stack = None
-        self.local_workspace = None
+        self._configure_backend()
         self._init_stack()
 
     def _create_default_logger(self) -> logging.Logger:
@@ -148,56 +236,141 @@ class PulumiProgram:
             logger.addHandler(handler)
         return logger
 
-    def _create_temp_dir(self) -> str:
+    def _temp_base(self) -> Path:
         if self.options.temp_dir:
-            base_dir = Path(self.options.temp_dir)
-            base_dir.mkdir(parents=True, exist_ok=True)
-        else:
-            base_dir = Path.cwd() / "tmp"
-            base_dir.mkdir(exist_ok=True)
+            return Path(self.options.temp_dir)
+        return Path.cwd() / "tmp"
 
-        temp_path = base_dir / f"programDir_{uuid.uuid4().hex[:8]}"
-        self.logger.info(f"Creating temp directory {temp_path.name}")
+    def _create_temp_dir(self) -> tuple[str, str]:
+        """Create ``<temp base>/programDir_<id>/<program name>``.
 
-        source_base = Path(self.working_dir).name
-        destination = temp_path / source_base
-        destination.mkdir(mode=0o755, parents=True, exist_ok=True)
-        return str(destination)
+        Directories are private to the current user (``0700``) because the
+        copy may include stack config and state.
+        """
+        base_dir = self._temp_base()
+        base_dir.mkdir(parents=True, exist_ok=True)
+        os.chmod(base_dir, 0o700)
+
+        program_dir = base_dir / f"programDir_{_short_id()}"
+        self.logger.info(f"Creating temp directory {program_dir.name}")
+        program_dir.mkdir(parents=True, exist_ok=True)
+        os.chmod(program_dir, 0o700)
+
+        source_base = os.path.basename(os.path.abspath(self.working_dir))
+        destination = program_dir / source_base
+        destination.mkdir(parents=True, exist_ok=True)
+        os.chmod(destination, 0o700)
+        return str(program_dir), str(destination)
+
+    def _configure_backend(self) -> None:
+        """Pick the backend.
+
+        Precedence: an explicit ``env("PULUMI_BACKEND_URL", ...)``, then the
+        ambient backend if ``use_ambient_backend()`` was given, otherwise a
+        private local file backend so test stacks never reach a shared
+        backend.
+        """
+        if (
+            "PULUMI_BACKEND_URL" not in self.options.custom_env
+            and not self.options.use_ambient_backend
+        ):
+            if self._owned_temp_dir:
+                backend_dir = Path(self._owned_temp_dir) / "backend"
+            else:
+                backend_dir = self._temp_base() / f"backend_{_short_id()}"
+            backend_dir.mkdir(parents=True, exist_ok=True)
+            os.chmod(backend_dir, 0o700)
+            self._backend_dir = str(backend_dir)
+            self._env_vars["PULUMI_BACKEND_URL"] = backend_dir.absolute().as_uri()
+        # Custom env vars from the env() option take precedence over defaults.
+        self._env_vars.update(self.options.custom_env)
+
+    def _active_env_vars(self) -> dict[str, str]:
+        """Env vars to hand to the Automation API, with empty values dropped."""
+        return {k: v for k, v in self._env_vars.items() if v}
 
     def _copy_to_internal(self, directory: str) -> None:
         try:
-            _copy_directory(self.working_dir, directory)
+            _copy_directory(
+                self.working_dir,
+                directory,
+                _safe_copy_filter(
+                    self.working_dir, [directory, str(self._temp_base())]
+                ),
+            )
         except OSError as e:
-            raise RuntimeError(f"Error copying program to {directory}: {e.strerror}")
+            raise RuntimeError(f"Error copying program to {directory}: {e}") from e
 
     def _init_stack(self) -> None:
         self.logger.info("Creating local workspace...")
-        self.local_workspace = auto.LocalWorkspace(work_dir=self.working_dir)
+        active_env = self._active_env_vars()
+        self.local_workspace = auto.LocalWorkspace(
+            work_dir=self.working_dir, env_vars=active_env
+        )
 
         if not self.options.skip_install:
             self.logger.info("Running pulumi install...")
             self.local_workspace.install()
 
-        if not self.options.skip_stack_create:
-            stack_name = self.options.stack_name or self.defaultStackName
-            self.logger.info(f"Running pulumi stack init... (stack: {stack_name})")
-            self.current_stack = auto.create_or_select_stack(
-                stack_name,
-                work_dir=self.working_dir,
-            )
-        else:
+        if self.options.skip_stack_create:
             self.logger.info("Skipping stack creation (skip_stack_create=True)")
+            return
+
+        stack_name = self.options.stack_name or self.defaultStackName
+        opts = auto.LocalWorkspaceOptions(env_vars=active_env)
+        self.logger.info(f"Running pulumi stack init... (stack: {stack_name})")
+        try:
+            self.current_stack = auto.create_stack(
+                stack_name, work_dir=self.working_dir, opts=opts
+            )
+        except auto.StackAlreadyExistsError:
+            self.current_stack = auto.select_stack(
+                stack_name, work_dir=self.working_dir, opts=opts
+            )
+            self.stack_preexisted = True
+            self.logger.info(
+                f"Stack '{stack_name}' already existed and was selected, not created. "
+                + (
+                    "cleanup() will destroy it because destroy_existing_stack() was given."
+                    if self.options.destroy_existing_stack
+                    else "cleanup() will leave it in place; pass opttest.destroy_existing_stack() to destroy it."
+                )
+            )
 
     def cleanup(self) -> None:
-        """Destroy and remove stack. Register with your test framework's cleanup."""
+        """Destroy and remove the stack, then delete the temporary copy of the
+        program. Register with your test framework's cleanup.
+
+        A stack that existed before this run is left untouched unless
+        ``opttest.destroy_existing_stack()`` was given. The temporary
+        directory is kept when the destroy fails, so the state is available
+        for inspection, or when ``opttest.keep_temp_dir()`` was given.
+        """
         if self.current_stack is not None:
+            if self.stack_preexisted and not self.options.destroy_existing_stack:
+                self.logger.info(
+                    f"Stack '{self.current_stack.name}' existed before this run; "
+                    "leaving it in place. Pass opttest.destroy_existing_stack() to destroy it."
+                )
+                return
+
             self.logger.info("Running pulumi destroy and removing stack...")
             try:
                 self.current_stack.destroy(remove=True)
             except Exception as e:
                 self.logger.error(f"Error during cleanup: {e}")
+                return
         else:
             self.logger.info("No current stack, skipping destroy...")
+
+        self._remove_temp_dirs()
+
+    def _remove_temp_dirs(self) -> None:
+        if self.options.keep_temp_dir:
+            return
+        for directory in (self._owned_temp_dir, self._backend_dir):
+            if directory is not None and Path(directory).exists():
+                shutil.rmtree(directory)
 
     def up(self) -> UpdateResult:
         """Run pulumi up."""
@@ -230,29 +403,20 @@ class PulumiProgram:
     def update_source(self, source_dir: str) -> None:
         """Update working directory from source, preserving stack state."""
         self.logger.info(f"Updating source from {source_dir} to {self.working_dir}")
-        source_path = Path(source_dir)
-        working_path = Path(self.working_dir)
-        preserve_paths = {".pulumi", "Pulumi.yaml", "Pulumi.test.yaml"}
+        source_root = os.path.abspath(source_dir)
 
-        def copy_selective(src: Path, dst: Path) -> None:
-            for entry in src.iterdir():
-                if entry.name in preserve_paths and src == source_path:
-                    continue
-                dest_path = dst / entry.name
-                if entry.is_dir():
-                    dest_path.mkdir(mode=0o755, parents=True, exist_ok=True)
-                    copy_selective(entry, dest_path)
-                elif entry.is_symlink():
-                    if dest_path.exists() or dest_path.is_symlink():
-                        dest_path.unlink()
-                    _copy_symlink(str(entry), str(dest_path))
-                else:
-                    _copy_file(str(entry), str(dest_path))
+        def extra(resolved: str) -> bool:
+            is_top_level = os.path.dirname(resolved) == source_root
+            return not (is_top_level and os.path.basename(resolved) in PRESERVED_PATHS)
 
         try:
-            copy_selective(source_path, working_path)
+            _copy_directory(
+                source_root,
+                self.working_dir,
+                _safe_copy_filter(source_root, [self.working_dir], extra),
+            )
         except OSError as e:
-            raise RuntimeError(f"Error updating source from {source_dir}: {e.strerror}")
+            raise RuntimeError(f"Error updating source from {source_dir}: {e}") from e
 
     def add_environments(self, *environment_names: str) -> None:
         """Add ESC environments to stack."""
@@ -261,16 +425,30 @@ class PulumiProgram:
         self.current_stack.add_environments(*environment_names)
 
     def get_env_vars(self) -> dict[str, str]:
-        """Get environment variables for this workspace."""
+        """Get the environment variables for this workspace.
+
+        Includes the config passphrase and anything passed via
+        ``opttest.env()``, which may be credentials. Do not log the returned
+        object.
+        """
         return self._env_vars.copy()
 
     def copy_to_temp_dir(self, *opts: opttest.Option) -> "PulumiProgram":
-        """Copy program to a new temporary directory."""
-        destination = self._create_temp_dir()
-        return self.copy_to(destination, *opts)
+        """Copy program to a new temporary directory.
+
+        The returned program owns that directory and removes it in ``cleanup()``.
+        """
+        program_dir, destination = self._create_temp_dir()
+        copy = self.copy_to(destination, *opts)
+        copy._owned_temp_dir = program_dir
+        return copy
 
     def copy_to(self, directory: str, *opts: opttest.Option) -> "PulumiProgram":
-        """Copy program to specified directory."""
+        """Copy program to specified directory.
+
+        The caller chose ``directory``, so the returned program does not remove
+        it in ``cleanup()``. Use :meth:`copy_to_temp_dir` for a self-cleaning copy.
+        """
         self._copy_to_internal(directory)
         options = self.options.copy()
         for opt in opts:

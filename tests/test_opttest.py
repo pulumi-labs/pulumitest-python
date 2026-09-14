@@ -24,6 +24,8 @@ def test_default_options():
     assert opts.config_passphrase == "correct horse battery staple"
     assert opts.use_ambient_backend is False
     assert opts.custom_env == {}
+    assert opts.destroy_existing_stack is False
+    assert opts.keep_temp_dir is False
 
 
 def test_stack_name():
@@ -72,6 +74,25 @@ def test_env():
     opts = opttest.default_options()
     opttest.env("FOO", "bar").apply(opts)
     assert opts.custom_env == {"FOO": "bar"}
+
+
+def test_destroy_existing_stack():
+    opts = opttest.default_options()
+    opttest.destroy_existing_stack().apply(opts)
+    assert opts.destroy_existing_stack is True
+
+
+def test_keep_temp_dir():
+    opts = opttest.default_options()
+    opttest.keep_temp_dir().apply(opts)
+    assert opts.keep_temp_dir is True
+
+
+def test_default_config_passphrase_constant():
+    assert opttest.DEFAULT_CONFIG_PASSPHRASE == "correct horse battery staple"
+    assert (
+        opttest.default_options().config_passphrase == opttest.DEFAULT_CONFIG_PASSPHRASE
+    )
 
 
 def test_options_copy():
